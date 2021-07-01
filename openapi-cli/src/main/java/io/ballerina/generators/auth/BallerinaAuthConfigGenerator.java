@@ -138,11 +138,10 @@ public class BallerinaAuthConfigGenerator {
             List<Node> recordFieldList = addItemstoRecordFieldList(openAPI);
             if (!recordFieldList.isEmpty()) {
                 Token typeName;
-                if (isAPIKey) {
-                    typeName = AbstractNodeFactory.createIdentifierToken(API_KEY_CONFIG);
-                } else {
+                if (isHttpOROAuth) {
                     typeName = AbstractNodeFactory.createIdentifierToken(CONFIG_RECORD_NAME);
-
+                } else {
+                    typeName = AbstractNodeFactory.createIdentifierToken(API_KEY_CONFIG);
                 }
                 Token visibilityQualifierNode = AbstractNodeFactory.createIdentifierToken(GeneratorConstants.PUBLIC);
                 Token typeKeyWord = AbstractNodeFactory.createIdentifierToken(GeneratorConstants.TYPE);
@@ -167,7 +166,7 @@ public class BallerinaAuthConfigGenerator {
      * @return {@link List<ObjectFieldNode>}    syntax tree object field node list
      */
     public static ObjectFieldNode getApiKeyMapClassVariable() { // return ObjectFieldNode
-        if (isAPIKey) {
+        if (!isHttpOROAuth && isAPIKey) {
             NodeList<Token> qualifierList = createEmptyNodeList();
             BuiltinSimpleNameReferenceNode typeName = createBuiltinSimpleNameReferenceNode(null,
                     createIdentifierToken(API_KEY_MAP));
@@ -318,7 +317,7 @@ public class BallerinaAuthConfigGenerator {
      * @return  {@link AssignmentStatementNode} syntax tree assignment statement node.
      */
     public static AssignmentStatementNode getApiKeyAssignmentNode() {
-        if (isAPIKey) {
+        if (!isHttpOROAuth && isAPIKey) {
             FieldAccessExpressionNode varRefApiKey = createFieldAccessExpressionNode(
                     createSimpleNameReferenceNode(createIdentifierToken("self")), createToken(DOT_TOKEN),
                     createSimpleNameReferenceNode(createIdentifierToken(API_KEY_CONFIG_RECORD_FIELD)));
@@ -337,7 +336,10 @@ public class BallerinaAuthConfigGenerator {
      * @return  {@link List<String>}    API key name list
      */
     public static List<String> getQueryApiKeyNameList () {
-        return queryApiKeyNameList;
+        if (!isHttpOROAuth && isAPIKey) {
+            return queryApiKeyNameList;
+        }
+        return new ArrayList<>();
     }
 
     /**
@@ -346,7 +348,10 @@ public class BallerinaAuthConfigGenerator {
      * @return  {@link List<String>}    API key name list
      */
     public static List<String> getHeaderApiKeyNameList () {
-        return headerApiKeyNameList;
+        if (!isHttpOROAuth && isAPIKey) {
+            return headerApiKeyNameList;
+        }
+        return new ArrayList<>();
     }
 
     /**

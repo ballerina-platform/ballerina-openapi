@@ -571,8 +571,8 @@ public class BallerinaSchemaGenerator {
             }
         } else if (schema.get$ref() != null) {
             String type = extractReferenceType(schema.get$ref());
-            Schema refSchema = openApi.getComponents().getSchemas().get(type);
             type = getValidName(type, true);
+            Schema refSchema = openApi.getComponents().getSchemas().get(type);
             if (refSchema.getNullable() != null) {
                 if (refSchema.getNullable()) {
                     type = type + "?";
