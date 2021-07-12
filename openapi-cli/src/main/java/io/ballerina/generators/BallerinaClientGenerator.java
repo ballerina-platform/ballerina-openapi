@@ -28,6 +28,8 @@ import io.ballerina.compiler.syntax.tree.CaptureBindingPatternNode;
 import io.ballerina.compiler.syntax.tree.ClassDefinitionNode;
 import io.ballerina.compiler.syntax.tree.DefaultableParameterNode;
 import io.ballerina.compiler.syntax.tree.ElseBlockNode;
+import io.ballerina.compiler.syntax.tree.EnumDeclarationNode;
+import io.ballerina.compiler.syntax.tree.EnumMemberNode;
 import io.ballerina.compiler.syntax.tree.ExpressionNode;
 import io.ballerina.compiler.syntax.tree.ExpressionStatementNode;
 import io.ballerina.compiler.syntax.tree.FieldAccessExpressionNode;
@@ -130,6 +132,8 @@ import static io.ballerina.compiler.syntax.tree.NodeFactory.createCaptureBinding
 import static io.ballerina.compiler.syntax.tree.NodeFactory.createClassDefinitionNode;
 import static io.ballerina.compiler.syntax.tree.NodeFactory.createDefaultableParameterNode;
 import static io.ballerina.compiler.syntax.tree.NodeFactory.createElseBlockNode;
+import static io.ballerina.compiler.syntax.tree.NodeFactory.createEnumDeclarationNode;
+import static io.ballerina.compiler.syntax.tree.NodeFactory.createEnumMemberNode;
 import static io.ballerina.compiler.syntax.tree.NodeFactory.createExpressionStatementNode;
 import static io.ballerina.compiler.syntax.tree.NodeFactory.createFieldAccessExpressionNode;
 import static io.ballerina.compiler.syntax.tree.NodeFactory.createForEachStatementNode;
@@ -151,6 +155,7 @@ import static io.ballerina.compiler.syntax.tree.NodeFactory.createNilLiteralNode
 import static io.ballerina.compiler.syntax.tree.NodeFactory.createObjectFieldNode;
 import static io.ballerina.compiler.syntax.tree.NodeFactory.createOptionalTypeDescriptorNode;
 import static io.ballerina.compiler.syntax.tree.NodeFactory.createQualifiedNameReferenceNode;
+import static io.ballerina.compiler.syntax.tree.NodeFactory.createRequiredExpressionNode;
 import static io.ballerina.compiler.syntax.tree.NodeFactory.createRequiredParameterNode;
 import static io.ballerina.compiler.syntax.tree.NodeFactory.createReturnStatementNode;
 import static io.ballerina.compiler.syntax.tree.NodeFactory.createReturnTypeDescriptorNode;
@@ -169,6 +174,7 @@ import static io.ballerina.compiler.syntax.tree.SyntaxKind.COLON_TOKEN;
 import static io.ballerina.compiler.syntax.tree.SyntaxKind.COMMA_TOKEN;
 import static io.ballerina.compiler.syntax.tree.SyntaxKind.DOT_TOKEN;
 import static io.ballerina.compiler.syntax.tree.SyntaxKind.ELSE_KEYWORD;
+import static io.ballerina.compiler.syntax.tree.SyntaxKind.ENUM_KEYWORD;
 import static io.ballerina.compiler.syntax.tree.SyntaxKind.EOF_TOKEN;
 import static io.ballerina.compiler.syntax.tree.SyntaxKind.EQUAL_TOKEN;
 import static io.ballerina.compiler.syntax.tree.SyntaxKind.FOREACH_KEYWORD;
@@ -197,6 +203,7 @@ import static io.ballerina.generators.GeneratorConstants.PATCH;
 import static io.ballerina.generators.GeneratorConstants.POST;
 import static io.ballerina.generators.GeneratorConstants.PUT;
 import static io.ballerina.generators.GeneratorConstants.RESPONSE;
+import static io.ballerina.generators.GeneratorConstants.STRING;
 import static io.ballerina.generators.GeneratorConstants.TRACE;
 import static io.ballerina.generators.GeneratorUtils.buildUrl;
 import static io.ballerina.generators.GeneratorUtils.convertOpenAPITypeToBallerina;
@@ -221,6 +228,7 @@ public class BallerinaClientGenerator {
     private static boolean isHeader;
     private static Info info;
     private static List<TypeDefinitionNode> typeDefinitionNodeList = new ArrayList<>();
+    private static List<EnumDeclarationNode> enumDeclarationNodeList = new ArrayList<>();
     private static OpenAPI openAPI;
     private static BallerinaSchemaGenerator ballerinaSchemaGenerator = new BallerinaSchemaGenerator();
 
@@ -260,6 +268,7 @@ public class BallerinaClientGenerator {
         ModulePartNode modulePartNode;
         List<ModuleMemberDeclarationNode> nodes =  new ArrayList<>();
         nodes.addAll(typeDefinitionNodeList);
+        nodes.addAll(enumDeclarationNodeList);
         nodes.add(classDefinitionNode);
         if (isQuery) {
             ImportDeclarationNode url = GeneratorUtils.getImportDeclarationNode(
@@ -870,30 +879,35 @@ public class BallerinaClientGenerator {
         }
 
         Schema parameterSchema = parameter.getSchema();
-
-        String paramType = convertOpenAPITypeToBallerina(parameterSchema.getType().trim());
-        if (parameterSchema.getType().equals("number")) {
-            if (parameterSchema.getFormat() != null) {
-                paramType = convertOpenAPITypeToBallerina(parameterSchema.getFormat().trim());
-            }
-        }
-
-        if (parameterSchema instanceof ArraySchema) {
-            ArraySchema arraySchema = (ArraySchema) parameterSchema;
-            if (arraySchema.getItems().getType() != null) {
-                String itemType = arraySchema.getItems().getType();
-                if (itemType.equals("string") || itemType.equals("integer") || itemType.equals("boolean")
-                        || itemType.equals("float") || itemType.equals("decimal")) {
-                    paramType = convertOpenAPITypeToBallerina(itemType) + "[]";
+        String paramType = "";
+        if (parameterSchema.getEnum() != null) {
+            paramType = getValidName(parameter.getName(), true);
+            createEnums(paramType, parameterSchema);
+        } else {
+            paramType = convertOpenAPITypeToBallerina(parameterSchema.getType().trim());
+            if (parameterSchema.getType().equals("number")) {
+                if (parameterSchema.getFormat() != null) {
+                    paramType = convertOpenAPITypeToBallerina(parameterSchema.getFormat().trim());
                 }
-            } else if (arraySchema.getItems().get$ref() != null) {
-                paramType = getValidName(extractReferenceType(arraySchema.getItems().get$ref().trim()), true) + "[]";
+            }
+
+            if (parameterSchema instanceof ArraySchema) {
+                ArraySchema arraySchema = (ArraySchema) parameterSchema;
+                if (arraySchema.getItems().getType() != null) {
+                    String itemType = arraySchema.getItems().getType();
+                    if (itemType.equals("string") || itemType.equals("integer") || itemType.equals("boolean")
+                            || itemType.equals("float") || itemType.equals("decimal")) {
+                        paramType = convertOpenAPITypeToBallerina(itemType) + "[]";
+                    }
+                } else if (arraySchema.getItems().get$ref() != null) {
+                    paramType = extractReferenceType(arraySchema.getItems().get$ref().trim()) + "[]";
+                }
             }
         }
+
         if (parameter.getRequired()) {
-             typeName = createBuiltinSimpleNameReferenceNode(null, createIdentifierToken(paramType));
-            IdentifierToken paramName =
-                    createIdentifierToken(escapeIdentifier(getValidName(parameter.getName().trim(), false)));
+            typeName = createBuiltinSimpleNameReferenceNode(null, createIdentifierToken(paramType));
+            IdentifierToken paramName = createIdentifierToken(getValidName(parameter.getName().trim(), false));
             return createRequiredParameterNode(annotationNodes, typeName, paramName);
         } else {
             // TODO: for optional change to defaultable with there values
@@ -934,12 +948,19 @@ public class BallerinaClientGenerator {
     public static Node getPathParameters(Parameter parameter) throws BallerinaOpenApiException {
         NodeList<AnnotationNode> annotationNodes = extractDisplayAnnotation(parameter.getExtensions());
         IdentifierToken paramName = createIdentifierToken(escapeIdentifier(parameter.getName().trim()));
-        String type = convertOpenAPITypeToBallerina(parameter.getSchema().getType().trim());
-        if (type.equals("anydata") || type.equals("[]") || type.equals("record")) {
+        Schema parameterSchema = parameter.getSchema();
+        String paramType = "";
+        if (parameterSchema.getEnum() != null) {
+            paramType = getValidName(parameter.getName(), true);
+            createEnums(paramType, parameterSchema);
+        } else {
+            paramType = convertOpenAPITypeToBallerina(parameter.getSchema().getType().trim());
+        }
+        if (paramType.equals("anydata") || paramType.equals("[]") || paramType.equals("record")) {
             throw new BallerinaOpenApiException(invalidPathParamType(parameter.getName().trim()));
         }
         BuiltinSimpleNameReferenceNode typeName = createBuiltinSimpleNameReferenceNode(null,
-                createIdentifierToken(type));
+                createIdentifierToken(paramType));
         return createRequiredParameterNode(annotationNodes, typeName, paramName);
     }
 
@@ -959,6 +980,9 @@ public class BallerinaClientGenerator {
                 } else {
                     type = convertOpenAPITypeToBallerina(arraySchema.getItems().getType().trim()) + "[]";
                 }
+            } else if (schema.getEnum() != null && schema.getType().equals(STRING)) {
+                type = getValidName(parameter.getName(), true);
+                createEnums(type, schema);
             }
             BuiltinSimpleNameReferenceNode typeName = createBuiltinSimpleNameReferenceNode(null,
                     createIdentifierToken(type));
@@ -966,15 +990,55 @@ public class BallerinaClientGenerator {
                     createIdentifierToken(escapeIdentifier(getValidName(parameter.getName().trim(), false)));
             return createRequiredParameterNode(annotationNodes, typeName, paramName);
         } else {
+            String type = "";
+            Schema schema = parameter.getSchema();
+            if (schema.getEnum() != null && schema.getType().equals(STRING)) {
+                type = getValidName(parameter.getName(), true);
+                createEnums(type, schema);
+            } else {
+                type = parameter.getSchema().getType().trim();
+            }
             BuiltinSimpleNameReferenceNode typeName = createBuiltinSimpleNameReferenceNode(null,
-                    createIdentifierToken(convertOpenAPITypeToBallerina(
-                            parameter.getSchema().getType().trim()) + "?"));
+                    createIdentifierToken(convertOpenAPITypeToBallerina(type) + "?"));
             IdentifierToken paramName =
                     createIdentifierToken(escapeIdentifier(getValidName(parameter.getName().trim(), false)));
             NilLiteralNode nilLiteralNode =
                     createNilLiteralNode(createToken(OPEN_PAREN_TOKEN), createToken(CLOSE_PAREN_TOKEN));
             return createDefaultableParameterNode(annotationNodes, typeName, paramName, createToken(EQUAL_TOKEN),
                     nilLiteralNode);
+        }
+    }
+
+    /*
+     * Create enum declaration node for string type enums.
+     */
+    private static void createEnums(String paramType, Schema parameterSchema) {
+        boolean isExit = false;
+        if (!enumDeclarationNodeList.isEmpty()) {
+            for (EnumDeclarationNode enumNode : enumDeclarationNodeList) {
+                if (enumNode.identifier().toString().trim().equals(paramType)) {
+                    isExit = true;
+                    // Todo: Will there be a scenario same param name -> different values in the enum
+                }
+            }
+        }
+        if (!isExit) {
+            List<Node> enumMemberNodeNodeList =  new ArrayList<>();
+            Iterator<String> iterator = parameterSchema.getEnum().iterator();
+            while (iterator.hasNext()) {
+                String enumValue = iterator.next();
+                String enumName = paramType + "_" + enumValue;;
+                EnumMemberNode memberNode = createEnumMemberNode(null, createIdentifierToken
+                                (enumName), createToken(EQUAL_TOKEN),
+                        createRequiredExpressionNode(createIdentifierToken("\"" + enumValue + "\"")));
+                enumMemberNodeNodeList.add(memberNode);
+                enumMemberNodeNodeList.add(createToken(COMMA_TOKEN));
+            }
+            EnumDeclarationNode enumDeclarationNode = createEnumDeclarationNode(null,
+                    createIdentifierToken("public"), createToken(ENUM_KEYWORD),
+                    createIdentifierToken(paramType), createToken(OPEN_BRACE_TOKEN),
+                    createSeparatedNodeList(enumMemberNodeNodeList), createToken(CLOSE_BRACE_TOKEN));
+            enumDeclarationNodeList.add(enumDeclarationNode);
         }
     }
 
